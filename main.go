@@ -7,8 +7,8 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"github.com/gin-gonic/gin"
 
+	"github.com/gin-gonic/gin"
 	_ "github.com/lib/pq"
 )
 
@@ -19,6 +19,12 @@ type Sensor struct {
 	Type   string  `json:"type"`
 	Value  float64 `json:"value"`
 	Status string  `json:"status"`
+}
+
+type Device struct {
+	ID     string `json:"id"`
+	Type   string `json:"type"`
+	Status string `json:"status"`
 }
 
 func getSensors(c *gin.Context) {
@@ -64,7 +70,7 @@ func connectToDatabase() error {
 }
 
 func addSensorToDatabase(sensor Sensor) error {
-	_, err := db.Exec("INSERT INTO sensors (id, type, value, status) VALUES ($1, $2, $3, $4)", sensor.ID, sensor.Type, sensor.Value, sensor.Status)
+	_, err := db.Exec("INSERT INTO sensors (type, value, status) VALUES ($1, $2, $3)", sensor.Type, sensor.Value, sensor.Status)
 	if err != nil {
 		log.Printf("Error executing SQL query: %v", err)
 	}
@@ -113,6 +119,65 @@ func loadSensorsFromDatabase() ([]Sensor, error) {
 	return sensors, nil
 }
 
+func addDevice(c *gin.Context) {
+	var newDevice Device
+	if err := c.BindJSON(&newDevice); err != nil {
+		log.Printf("Error binding JSON: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	err := addDeviceToDatabase(newDevice)
+	if err != nil {
+		log.Printf("Error adding device to database: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, newDevice)
+}
+
+func addDeviceToDatabase(device Device) error {
+	_, err := db.Exec("INSERT INTO devices (type, status) VALUES ($1, $2)", device.Type, device.Status)
+	if err != nil {
+		log.Printf("Error executing SQL query: %v", err)
+	}
+	return err
+}
+
+func updateDeviceStatus(c *gin.Context) {
+	id := c.Param("id")
+	var status struct {
+		Status string `json:"status"`
+	}
+	if err := c.BindJSON(&status); err != nil {
+		log.Printf("Error binding JSON: %v", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	err := updateDeviceStatusInDatabase(id, status.Status)
+	if err != nil {
+		log.Printf("Error updating device status in database: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "Device status updated"})
+}
+
+func updateDeviceStatusInDatabase(id, status string) error {
+	_, err := db.Exec("UPDATE devices SET status = $1 WHERE id = $2", status, id)
+	if err != nil {
+		log.Printf("Error executing SQL query: %v", err)
+	}
+	return err
+}
+
+func logAction(sensorID, deviceID, action string) error {
+	_, err := db.Exec("INSERT INTO logs (sensor_id, device_id, action) VALUES ($1, $2, $3)", sensorID, deviceID, action)
+	if err != nil {
+		log.Printf("Error logging action: %v", err)
+	}
+	return err
+}
+
 func main() {
 	err := connectToDatabase()
 	if err != nil {
@@ -124,6 +189,8 @@ func main() {
 	r.GET("/sensors", getSensors)
 	r.POST("/sensors/add", addSensor)
 	r.DELETE("/sensors/delete/:id", deleteSensor)
+	r.POST("/devices/add", addDevice)
+	r.PUT("/devices/update/:id", updateDeviceStatus)
 
 	go func() {
 		if err := r.Run(":8080"); err != nil {
