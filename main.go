@@ -45,7 +45,7 @@ func addPot(c *gin.Context) {
         c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
         return
     }
-    err := addPotToDatabase(newPot)
+    err := addPotToDatabase(&newPot)
     if err != nil {
         log.Printf("Error adding pot to database: %v", err)
         c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -55,7 +55,7 @@ func addPot(c *gin.Context) {
     c.JSON(http.StatusOK, newPot)
 }
 
-func addPotToDatabase(pot Pot) error {
+func addPotToDatabase(pot *Pot) error {
     var potID int
     err := db.QueryRow("INSERT INTO pots (name) VALUES ($1) RETURNING id", pot.Name).Scan(&potID)
     if err != nil {
@@ -65,6 +65,7 @@ func addPotToDatabase(pot Pot) error {
     pot.ID = potID
     return nil
 }
+
 
 func deletePot(c *gin.Context) {
     id := c.Param("id")
