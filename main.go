@@ -30,12 +30,74 @@ type Device struct {
     PotID  int    `json:"pot_id"`
 }
 
-
 type Pot struct {
     ID      int       `json:"id"`
     Name    string    `json:"name"`
     Sensors []Sensor  `json:"sensors"`
     Devices []Device  `json:"devices"`
+}
+
+type Log struct {
+    ID        int    `json:"id"`
+    SensorID  string `json:"sensor_id"`
+    DeviceID  string `json:"device_id"`
+    Action    string `json:"action"`
+    Timestamp string `json:"timestamp"`
+}
+
+func getLogs(c *gin.Context) {
+    logs, err := loadLogsFromDatabase()
+    if err != nil {
+        log.Printf("Error loading logs from database: %v", err)
+        c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+        return
+    }
+    c.JSON(http.StatusOK, logs)
+}
+
+func loadLogsFromDatabase() ([]Log, error) {
+    rows, err := db.Query("SELECT id, sensor_id, device_id, action, timestamp FROM logs")
+    if err != nil {
+        log.Printf("Error querying database: %v", err)
+        return nil, err
+    }
+    defer rows.Close()
+
+    var logs []Log
+    for rows.Next() {
+        var l Log
+        err = rows.Scan(&l.ID, &l.SensorID, &l.DeviceID, &l.Action, &l.Timestamp)
+        if err != nil {
+            log.Printf("Error scanning row: %v", err)
+            return nil, err
+        }
+        logs = append(logs, l)
+    }
+
+    if err = rows.Err(); err != nil {
+        log.Printf("Error with rows: %v", err)
+        return nil, err
+    }
+
+    return logs, nil
+}
+
+func clearLogs(c *gin.Context) {
+    err := clearLogsFromDatabase()
+    if err != nil {
+        log.Printf("Error clearing logs from database: %v", err)
+        c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+        return
+    }
+    c.JSON(http.StatusOK, gin.H{"status": "Logs cleared"})
+}
+
+func clearLogsFromDatabase() error {
+    _, err := db.Exec("DELETE FROM logs")
+    if err != nil {
+        log.Printf("Error executing SQL query: %v", err)
+    }
+    return err
 }
 
 func addPot(c *gin.Context) {
@@ -424,14 +486,16 @@ func main() {
     r.DELETE("/pots/delete/:id", deletePot)
     r.GET("/pots", getPots)
 
+    r.GET("/logs", getLogs)
+    r.DELETE("/logs/clear", clearLogs)
+
 	go func() {
 		if err := r.Run(":8080"); err != nil {
 			log.Fatal("Server Shutdown:", err)
 		}
 	}()
 
-	// Wait for interrupt signal to gracefully shutdown the server
-	quit := make(chan os.Signal)
+	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 	log.Println("Shutting down server...")
